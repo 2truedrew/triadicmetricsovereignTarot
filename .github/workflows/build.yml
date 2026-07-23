@@ -1,0 +1,42 @@
+name: build
+on: [push,workflow_dispatch]
+jobs:
+  weave:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-java@v4
+      with: {java-version: '17', distribution: 'temurin'}
+    - run: |
+        sudo apt update -qq && sudo apt install -y -qq curl unzip zip zipalign python3 jq >/dev/null 2>&1
+        F=$HOME/sdk && mkdir -p $F/cmdline-tools && cd $F/cmdline-tools
+        curl -sLO https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+        unzip -qo *.zip && mv cmdline-tools latest 2>/dev/null;true
+        yes 2>/dev/null|$F/cmdline-tools/latest/bin/sdkmanager --sdk_root=$F --licenses >/dev/null 2>&1;true
+        $F/cmdline-tools/latest/bin/sdkmanager --sdk_root=$F --install "platform-tools" "platforms;android-34" "build-tools;34.0.0" >/dev/null 2>&1
+        cd $GITHUB_WORKSPACE
+        curl -sLO https://services.gradle.org/distributions/gradle-8.10-bin.zip && unzip -qo gradle-8.10-bin.zip
+        echo "SDK=$F" >> $GITHUB_ENV
+        echo "GRADLE=$GITHUB_WORKSPACE/gradle-8.10" >> $GITHUB_ENV
+    - run: |
+        B=.aegis;rm -rf $B
+        mkdir -p $B/app/src/main/java/com/apk $B/app/src/main/res/values $B/app/src/main/assets/layers $B/app/src/main/assets/html
+        cp -r layers/* $B/app/src/main/assets/layers/ 2>/dev/null || true
+        cp -r src/main/assets/html/* $B/app/src/main/assets/html/ 2>/dev/null || true
+        cp -r src/main/res/* $B/app/src/main/res/ 2>/dev/null || true
+        cp navmap.json $B/app/src/main/assets/ 2>/dev/null || true
+        cp src/main/java/com/apk/A.java $B/app/src/main/java/com/apk/ 2>/dev/null || true
+        cp src/main/gradle/settings.gradle $B/settings.gradle 2>/dev/null || true
+        cp src/main/gradle/build.gradle $B/build.gradle 2>/dev/null || true
+        cp src/main/gradle/app-build.gradle $B/app/build.gradle 2>/dev/null || true
+        cp src/main/gradle/gradle.properties $B/gradle.properties 2>/dev/null || true
+        cp src/main/AndroidManifest.xml $B/app/src/main/ 2>/dev/null || true
+        echo "sdk.dir=$SDK" > $B/local.properties
+        cd $B
+        $GRADLE/bin/gradle assembleDebug --no-daemon --stacktrace
+        A=$(find . -name "*.apk" 2>/dev/null|head -1)
+        [ -n "$A" ] && mkdir -p ../output && cp $A ../output/app-debug.apk && echo "SUCCESS"
+    - uses: actions/upload-artifact@v4
+      if: success()
+      with: {name: apk, path: output/app-debug.apk}
